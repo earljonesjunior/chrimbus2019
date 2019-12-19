@@ -1,4 +1,4 @@
-14500202006815489
+14504925596440489
 Battery
 BatteryHolder_Bulgin_BX0036_1xC
 Bulgin Battery Holder, BX0036, Battery Type C (http://www.bulgin.com/media/bulgin/data/Battery_holders.pdf)
@@ -66206,6 +66206,13 @@ http://www.cree.com/led-components/media/documents/ds-CLX6F-FKC-1352.pdf
 6
 6
 toolbox_battery
+BAT_BK-877
+
+
+0
+3
+2
+toolbox_battery
 BCAAAPC
 
 
@@ -66239,4 +66246,18 @@ GF-123-0054
 
 0
 2
+2
+toolbox_switch
+GPTS203211B
+
+
+0
+2
+2
+toolbox_switch
+TL3305AF160QG
+
+
+0
+4
 2
