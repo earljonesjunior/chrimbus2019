@@ -52,6 +52,8 @@
 
 #define _XTAL_FREQ 1000000
 
+#define SPIRAL_DELAY 200
+
 void sys_initialize(void);
 void i2c_initialize(void);
 
@@ -64,6 +66,7 @@ _Bool I2C_Stop(void);
 uint8_t data;
 uint8_t driver_address;
 uint8_t control_word;
+uint8_t sequence;
 
 typedef struct LED_t {
     uint8_t R;
@@ -73,12 +76,30 @@ typedef struct LED_t {
     uint8_t num; 
 } LED;
 
+typedef struct LEDmap_t{
+    uint8_t LED00 : 1;
+    uint8_t LED01 : 1;
+    uint8_t LED02 : 1;
+    uint8_t LED03 : 1;
+    uint8_t LED04 : 1;
+    uint8_t LED05 : 1;
+    uint8_t LED06 : 1;
+    uint8_t LED07 : 1;
+    uint8_t LED08 : 1;
+    uint8_t LED09 : 1;
+    uint8_t LED10 : 1;
+    uint8_t LED11 : 1;
+    uint8_t LED12 : 1;
+    uint8_t LED13 : 1;
+    uint8_t LED14 : 1;
+} LEDmap;
+
 
 void Write_LED(LED *led);
 void Initialize_Driver(void);
 
 enum{SUCCESS,FAILURE};
-enum{black = 0, white, red, orange, yellow, green, blue, indigo, violet, brown};
+enum{STANDBY = 0, RANDOM, INOUT, SPIRAL};
 
 typedef struct I2C_Flags_t{    
     _Bool START;
@@ -96,18 +117,23 @@ I2C_Flags I2C_FLAGS;
 
 void main(void) {
         
+    sequence = 1;
     sys_initialize();
     i2c_initialize();
     Initialize_Driver();
     
     while(1){ 
 
-        Write_LED(&LED1);
-        Write_LED(&LED2);
-        Write_LED(&LED3);
-        Write_LED(&LED4);
-        Write_LED(&LED5);
-        __delay_ms(2000);
+        switch (sequence)
+        {
+        case RANDOM:
+            sequence_random();
+            break;
+        case INOUT:
+            sequence_inOut();
+        default:
+            break;
+        }
     }
     
     return;
@@ -237,84 +263,6 @@ _Bool I2C_Stop(void){
        
 }
 
-void Write_LED(LED *led){
-    
-    volatile uint32_t r1;
-    volatile uint32_t r2;
-    volatile uint32_t r;
-    srand(TMR0L);
-    /*r1 = rand();
-    srand(TMR0L);
-    r2 = rand();
-    
-    r = (r1<<16) | r2;
-    */
-    
-    r1 = rand() % 10;
-    
-    switch(r1){
-        
-        case black :
-            r = 0x00;
-            break;
-        case white :
-            r = 0xFFFFFF;
-            break;
-        case red :
-            r = 0xFF0000;
-            break;
-        case orange :
-            r = 0xFFA500;
-            break;
-        case yellow :
-            r = 0xFFFF00;
-            break;
-        case green :
-            r = 0x00FF00;
-            break;
-        case blue :
-            r = 0x0000FF;
-            break;
-        case indigo : 
-            r = 0xFF1493;
-            break;
-        case violet :
-            r = 0xEE82EE;
-            break;
-        case brown :
-            r = 0xA52A2A;
-            break;
-        default :
-            r = 0x008080;
-            
-    }
-    
-    
-    // Generate random number
-    
-    //Bit-shift and mask for RGB values
-    led->R = (uint8_t) ((r>>16) & 0xFF) ;
-    led->G = (uint8_t) ((r>>8) & 0xFF);
-    led->B = (uint8_t) (r & 0xFF) ;
-    
-    
-    //Send start condition
-    I2C_FLAGS.START = I2C_Startup();
-    //Slave address
-    I2C_FLAGS.SEND = I2C_Transmit(LED_DRIVER_ADDRESS);
-    //Select PWM0 register 0x02 WITH AUTO INCREMENT
-    I2C_FLAGS.SEND = I2C_Transmit(0b10100000 | led->reg);
-    //Send R value
-    I2C_FLAGS.SEND = I2C_Transmit(led->R);
-    //Send G value
-    I2C_FLAGS.SEND = I2C_Transmit(led->G);
-    //Send B value
-    I2C_FLAGS.SEND = I2C_Transmit(led->B);
-    //Hopefully things worked?
-    I2C_FLAGS.STOP = I2C_Stop();
-    
-}
-
 void Initialize_Driver(){
     
     // startup delay
@@ -363,4 +311,120 @@ void Initialize_Driver(){
     //Done with this block
     I2C_FLAGS.STOP = I2C_Stop();
     
+}
+
+void sequence_random(){
+    
+    // create seed
+    srand(TMR0L);
+    // create map
+    volatile LEDmap map = rand();
+
+    write_map(map);
+
+    __delay_ms(2000);
+
+}
+
+void sequence_inOut(){
+
+    // write inner leds
+    // 0011 0010 0100 1001
+    write_map(0x3249);
+    __delay_ms(1000);
+    
+    // write outer leds
+    // 1100 1101 1011 0110
+    write_map(0xCDB6);
+    __delay_ms(1000);
+
+}
+
+
+void sequence_spiral(){
+
+    // LED 1
+    write_map(0x01);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 4
+    write_map(0x04);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 7
+    write_map(0x30);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 10
+    write_map(0x200);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 13
+    write_map(0x1000);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 14
+    write_map(0x2000);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 1
+    write_map(0x01);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 2
+    write_map(0x02);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 3
+    write_map(0x03);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 5
+    write_map(0x10);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 6
+    write_map(0x20);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 8
+    write_map(040);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 9
+    write_map(0x0100);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 11
+    write_map(0x300);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 12
+    write_map(0x400);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 15
+    write_map(0x3000);
+    __delay_ms(SPIRAL_DELAY);
+    // LED 16
+    write_map(0x4000);
+    __delay_ms(SPIRAL_DELAY);
+
+
+}
+
+void write_map(LEDmap leds){
+
+    //Send start condition
+    I2C_FLAGS.START = I2C_Startup();
+    //Slave address
+    I2C_FLAGS.SEND = I2C_Transmit(LED_DRIVER_ADDRESS);
+    //Select PWM0 register 0x02 WITH AUTO INCREMENT
+    I2C_FLAGS.SEND = I2C_Transmit(0b10100000 | 0x02);
+
+    for(int i = 0; i < 16; i++){
+
+        // turn on if bit is 1, off if bit is 0
+        if( (leds>>i) & 0x01 ){
+            I2C_FLAGS.SEND = I2C_Transmit(0xFF);
+        } else {
+            I2C_FLAGS.SEND = I2C_Transmit(0x00);
+        }
+
+    }
+
+    //Send R value
+    I2C_FLAGS.SEND = I2C_Transmit(led->R);
+    //Send G value
+    I2C_FLAGS.SEND = I2C_Transmit(led->G);
+    //Send B value
+    I2C_FLAGS.SEND = I2C_Transmit(led->B);
+    //Hopefully things worked?
+    I2C_FLAGS.STOP = I2C_Stop();
+
 }
