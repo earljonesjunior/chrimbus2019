@@ -52,12 +52,19 @@
 
 #define _XTAL_FREQ 1000000
 
-#define SPIRAL_DELAY 200
+// delay for spiral sequence
+#define SPIRAL_DELAY 25
+// delay for sparkle sequence
+#define SPARKLE_DELAY 50
+#define FADE_DELAY 100
+#define RANDOM_DELAY 1000
+#define INOUT_DELAY 1000
+
+#define SEQUENCE_COUNT 5
+enum{SEQ_STANDBY = 0, SEQ_STARTUP, SEQ_SPARKLE, SEQ_FADE, SEQ_INOUT, SEQ_RANDOM, SEQ_SPIRAL, };
 
 void sys_initialize(void);
 void i2c_initialize(void);
-
-
 
 _Bool I2C_Transmit(uint8_t data);
 _Bool I2C_Startup(void);
@@ -66,40 +73,23 @@ _Bool I2C_Stop(void);
 uint8_t data;
 uint8_t driver_address;
 uint8_t control_word;
-uint8_t sequence;
+uint8_t sequence_state = 0;
 
-typedef struct LED_t {
-    uint8_t R;
-    uint8_t G;
-    uint8_t B;
-    uint8_t reg;
-    uint8_t num; 
-} LED;
+void write_map(uint16_t leds);
+void sequence_standby(void);
+void sequence_startup(void);
+void sequence_random(void);
+void sequence_inOut(void);
+void sequence_spiral(void);
+void sequence_sparkle(void);
+void sequence_fade(void);
+void check_switch(void);
+void switch_sequence(void);
 
-typedef struct LEDmap_t{
-    uint8_t LED00 : 1;
-    uint8_t LED01 : 1;
-    uint8_t LED02 : 1;
-    uint8_t LED03 : 1;
-    uint8_t LED04 : 1;
-    uint8_t LED05 : 1;
-    uint8_t LED06 : 1;
-    uint8_t LED07 : 1;
-    uint8_t LED08 : 1;
-    uint8_t LED09 : 1;
-    uint8_t LED10 : 1;
-    uint8_t LED11 : 1;
-    uint8_t LED12 : 1;
-    uint8_t LED13 : 1;
-    uint8_t LED14 : 1;
-} LEDmap;
-
-
-void Write_LED(LED *led);
 void Initialize_Driver(void);
 
 enum{SUCCESS,FAILURE};
-enum{STANDBY = 0, RANDOM, INOUT, SPIRAL};
+
 
 typedef struct I2C_Flags_t{    
     _Bool START;
@@ -107,36 +97,67 @@ typedef struct I2C_Flags_t{
     _Bool STOP;
 } I2C_Flags;
 
-LED LED1 = {0, 0, 0, 0x02, 1};
-LED LED2 = {0, 0, 0, 0x05, 2};
-LED LED3 = {0, 0, 0, 0x08, 3};
-LED LED4 = {0, 0, 0, 0x0B, 4};
-LED LED5 = {0, 0, 0, 0x0E, 5};
 
 I2C_Flags I2C_FLAGS;
 
 void main(void) {
         
-    sequence = 1;
     sys_initialize();
     i2c_initialize();
     Initialize_Driver();
     
     while(1){ 
-
-        switch (sequence)
+                
+        switch (sequence_state)
         {
-        case RANDOM:
+        case SEQ_RANDOM:
             sequence_random();
             break;
-        case INOUT:
+        case SEQ_INOUT:
             sequence_inOut();
+            break;
+        case SEQ_SPIRAL:
+            sequence_spiral();
+            break;
+        case SEQ_SPARKLE:
+            sequence_sparkle();
+            break;
+        case SEQ_FADE:
+            sequence_fade();
+            break;
+        case SEQ_STARTUP:
+            sequence_startup();
+            break;
+        case SEQ_STANDBY:
+            sequence_standby();
+            break;
         default:
             break;
         }
     }
     
     return;
+}
+
+void __interrupt() int_handler(void){
+    
+    // switch flag
+    if(IOCCFbits.IOCCF3 == 1){
+        if(PORTCbits.RC3 == 1){
+        // blocking debounce
+            __delay_ms(50);
+            if(PORTCbits.RC3 == 1){
+                IOCCFbits.IOCCF3 = 0;
+                // wait for switch to be depressed
+                while(PORTCbits.RC3);
+                switch_sequence();
+            }
+        }
+        // clear flags
+        IOCCFbits.IOCCF3 = 0;
+        
+    }
+    
 }
 
 void sys_initialize(void){
@@ -168,7 +189,17 @@ void sys_initialize(void){
     //Enable TMR0
     T0CON0bits.T0EN = 1;
     
+    // tristate switch port
+    TRISCbits.TRISC3 = 1;
     
+    // enable global interrupts
+    INTCON = 0xF1;
+    // enable interrupt-on-change interrupt
+    PIE0bits.IOCIE = 1;
+    // enable RC3 ioc on positive edge
+    IOCCPbits.IOCCP3 = 1;
+    // clear flag
+    IOCCFbits.IOCCF3 = 0;
     
     I2C_FLAGS.START = SUCCESS;
     I2C_FLAGS.SEND = SUCCESS;
@@ -189,6 +220,7 @@ void i2c_initialize(void){
     
     TRISCbits.TRISC4 = 0;
     LATCbits.LATC4 = 1;
+
     
     // SMP Standard Speed; CKE disabled; 
     SSP1STAT = 0x80;
@@ -299,17 +331,6 @@ void Initialize_Driver(){
     //Done with this block
     I2C_FLAGS.STOP = I2C_Stop();
     
-    //Turn on star LED
-    //Send start condition
-    I2C_FLAGS.START = I2C_Startup();
-    //Slave address
-    I2C_FLAGS.SEND = I2C_Transmit(LED_DRIVER_ADDRESS);
-    //Select PWM15 register 0x11
-    I2C_FLAGS.SEND = I2C_Transmit(0x11);
-    //Light em up bb
-    I2C_FLAGS.SEND = I2C_Transmit(0xFF);
-    //Done with this block
-    I2C_FLAGS.STOP = I2C_Stop();
     
 }
 
@@ -318,11 +339,11 @@ void sequence_random(){
     // create seed
     srand(TMR0L);
     // create map
-    volatile LEDmap map = rand();
+    volatile uint16_t map = (uint16_t)rand();
 
     write_map(map);
 
-    __delay_ms(2000);
+    __delay_ms(RANDOM_DELAY);
 
 }
 
@@ -331,12 +352,12 @@ void sequence_inOut(){
     // write inner leds
     // 0011 0010 0100 1001
     write_map(0x3249);
-    __delay_ms(1000);
+    __delay_ms(INOUT_DELAY);
     
     // write outer leds
     // 1100 1101 1011 0110
     write_map(0xCDB6);
-    __delay_ms(1000);
+    __delay_ms(INOUT_DELAY);
 
 }
 
@@ -347,10 +368,10 @@ void sequence_spiral(){
     write_map(0x01);
     __delay_ms(SPIRAL_DELAY);
     // LED 4
-    write_map(0x04);
+    write_map(0x08);
     __delay_ms(SPIRAL_DELAY);
     // LED 7
-    write_map(0x30);
+    write_map(0x40);
     __delay_ms(SPIRAL_DELAY);
     // LED 10
     write_map(0x200);
@@ -368,7 +389,7 @@ void sequence_spiral(){
     write_map(0x02);
     __delay_ms(SPIRAL_DELAY);
     // LED 3
-    write_map(0x03);
+    write_map(0x04);
     __delay_ms(SPIRAL_DELAY);
     // LED 5
     write_map(0x10);
@@ -377,28 +398,75 @@ void sequence_spiral(){
     write_map(0x20);
     __delay_ms(SPIRAL_DELAY);
     // LED 8
-    write_map(040);
+    write_map(0x80);
     __delay_ms(SPIRAL_DELAY);
     // LED 9
     write_map(0x0100);
     __delay_ms(SPIRAL_DELAY);
     // LED 11
-    write_map(0x300);
-    __delay_ms(SPIRAL_DELAY);
-    // LED 12
     write_map(0x400);
     __delay_ms(SPIRAL_DELAY);
+    // LED 12
+    write_map(0x800);
+    __delay_ms(SPIRAL_DELAY);
     // LED 15
-    write_map(0x3000);
+    write_map(0x4000);
     __delay_ms(SPIRAL_DELAY);
     // LED 16
-    write_map(0x4000);
+    write_map(0x8000);
     __delay_ms(SPIRAL_DELAY);
 
 
 }
 
-void write_map(LEDmap leds){
+
+
+void sequence_sparkle(){
+
+    // LEDs 1/10
+    write_map(0x0201);
+    __delay_ms(SPARKLE_DELAY);
+    // LEDs 2/6/11
+    write_map(0x0422);
+    __delay_ms(SPARKLE_DELAY);
+    // LEDs 3/7/12/14
+    write_map(0x2844);
+    __delay_ms(SPARKLE_DELAY);
+    // LEDs 4/8/13/15
+    write_map(0x5088);
+    __delay_ms(SPARKLE_DELAY);
+    // LEDs 5/9/16
+    write_map(0x8110);
+    __delay_ms(SPARKLE_DELAY);
+
+}
+
+
+void sequence_fade(void){
+    // LEDs 2/3
+    write_map(0x0006);
+    __delay_ms(FADE_DELAY);
+    // LEDs 1/4/5/16
+    write_map(0x8019);
+    __delay_ms(FADE_DELAY);
+    // LEDs 6/15
+    write_map(0x4020);
+    __delay_ms(FADE_DELAY);
+    // LEDs 7/14
+    write_map(0x2040);
+    __delay_ms(FADE_DELAY);
+    // LEDs 8
+    write_map(0x0080);
+    __delay_ms(FADE_DELAY);
+    // LEDs 9/10/13
+    write_map(0x1300);
+    __delay_ms(FADE_DELAY);
+    // LEDs 11/12
+    write_map(0x0C00);
+    __delay_ms(FADE_DELAY);
+}
+
+void write_map(uint16_t leds){
 
     //Send start condition
     I2C_FLAGS.START = I2C_Startup();
@@ -407,24 +475,51 @@ void write_map(LEDmap leds){
     //Select PWM0 register 0x02 WITH AUTO INCREMENT
     I2C_FLAGS.SEND = I2C_Transmit(0b10100000 | 0x02);
 
+
+    // shift and masks to check each led
     for(int i = 0; i < 16; i++){
 
-        // turn on if bit is 1, off if bit is 0
+        // turn on led i if LSB is 1, off if bit is 0
         if( (leds>>i) & 0x01 ){
-            I2C_FLAGS.SEND = I2C_Transmit(0xFF);
+            I2C_FLAGS.SEND = I2C_Transmit(0x0F);
         } else {
             I2C_FLAGS.SEND = I2C_Transmit(0x00);
         }
 
     }
 
-    //Send R value
-    I2C_FLAGS.SEND = I2C_Transmit(led->R);
-    //Send G value
-    I2C_FLAGS.SEND = I2C_Transmit(led->G);
-    //Send B value
-    I2C_FLAGS.SEND = I2C_Transmit(led->B);
-    //Hopefully things worked?
-    I2C_FLAGS.STOP = I2C_Stop();
+    I2C_FLAGS.STOP = I2C_Stop(); 
 
+}
+
+
+void switch_sequence(void){
+        
+    if(sequence_state < SEQUENCE_COUNT){
+        sequence_state ++;
+    } else{
+        sequence_state = 0;
+    }
+    
+}
+
+void sequence_startup(void){
+    // turn on voltage regulator
+    LATCbits.LATC4 = 1;
+    i2c_initialize();
+    Initialize_Driver();
+    sequence_state ++;
+}
+
+void sequence_standby(void){
+    
+    // turn off voltage regulator
+    LATCbits.LATC4 = 0;
+    //disable i2c
+    SSP1CON1bits.SSPEN = 0;
+    // ground i2c pins
+    SCK_tris = 0;
+    SDA_tris = 0;
+    LATCbits.LATC0 = 0;
+    LATCbits.LATC1 = 0;
 }
