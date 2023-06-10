@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name chrimbus2019-rescue)(type Legacy)(uri ${KIPRJMOD}/chrimbus2019-rescue.lib)(options "")(descr ""))
+)
